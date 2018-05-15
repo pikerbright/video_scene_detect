@@ -5,12 +5,12 @@ import argparse
 
 
 def transcoding(filename):
-    cmd = 'ffmpeg -y -i ' + filename + ' -vcodec libx264 -an -g 1000 -profile:v baseline -sc_threshold 125 temp.mp4'
+    cmd = 'ffmpeg -y -i ' + filename + ' -vcodec libx264 -an -g 1000 -profile:v baseline -sc_threshold 100 temp.mp4'
     os.system(cmd)
 
 
 def get_video_info():
-    cmd = 'ffprobe -show_frames -print_format json save.mp4'
+    cmd = 'ffprobe -show_frames -print_format json temp.mp4'
     json_obj = json.load(os.popen(cmd))
 
     return json_obj
@@ -30,9 +30,15 @@ def write_scene_file(filename):
     pts_times = []
     for frame_info in info['frames']:
         if frame_info['media_type'] == 'video' and frame_info['pict_type'] == 'I':
-            pts_times.append(float(frame_info['pkt_pts_time']))
+            if frame_info.get('pkt_dts_time'):
+                pts_times.append(float(frame_info['pkt_dts_time']))
+            elif frame_info.get('pkt_pts_time'):
+                pts_times.append(float(frame_info['pkt_pts_time']))
+            else:
+                raise ValueError
 
     detect_result = []
+    i = 0
     with open(filename, 'w') as f:
         for i in range(len(pts_times) - 1):
             start_pts_time = pts_times[i]
@@ -53,6 +59,7 @@ def write_scene_file(filename):
             str_end_time = "{:0>2}:{:0>2}:{:.3f}".format(e_hour, e_minute, e_second)
             detect_result.append({'index': i + 1, 'start_time': str_start_time, 'end_time': str_end_time})
 
+        i += 1
         f.write("{}\n".format(i + 1))
         f.write("{:0>2}:{:0>2}:{:.3f} --> {:0>2}:{:0>2}:{:.3f}\n".format(e_hour, e_minute, e_second, 10, 0, 0))
         f.write("镜头{}\n\n".format(i + 1))
