@@ -183,7 +183,7 @@ static int open_output_file(const char *filename)
         enc_ctx->qcompress = 1.0;
 
         //scene detect parameter
-        enc_ctx->gop_size = 1000;
+        enc_ctx->gop_size = 2000;
         enc_ctx->profile = FF_PROFILE_H264_BASELINE;
         enc_ctx->scenechange_threshold = sc_threshold;
         av_opt_set(enc_ctx->priv_data, "tune","zerolatency",0);
@@ -260,7 +260,7 @@ encode:
 
     auto type = (int)enc_pkt.data[5];
     //new sequence or I frame
-    if (scene_frame_count > 0 && ( type == 0x42 || type == 0x88)) {
+    if (scene_frame_count > 10 && ( type == 0x42 || type == 0x88)) {
         av_write_trailer(ofmt_ctx);
 
         for (int i = 0; i < ofmt_ctx->nb_streams; i++) {
