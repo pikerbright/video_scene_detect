@@ -5,9 +5,11 @@ extern "C"
 #include <libavfilter/avfiltergraph.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
+#include <libswscale/swscale.h>
 };
 
 #include <iostream>
+#include "Queue.h"
 
 #undef av_err2str
 std::string av_err2str(int errnum) {
@@ -32,12 +34,17 @@ typedef struct StreamContext {
 static StreamContext *stream_ctx;
 
 static AVCodecContext *video_dec_ctx = NULL;
+static SwsContext *img_convert_ctx=NULL;
+static AVFrame *pScaleFrame=NULL;
 static int video_stream_idx = -1;
 static int scene_count = 0;
 static int scene_frame_count = 0;
 char output_file_name[128];
 int sc_threshold = 100;
 bool cut_video = true;
+int scale_width = 0;
+int scale_height = 0;
+Queue<std::string> file_queue;
 
 static int open_input_file(const char *filename)
 {
@@ -156,8 +163,8 @@ static int open_output_file(const char *filename)
          * sample rate etc.). These properties can be changed for output
          * streams easily using filters */
         if (dec_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
-            enc_ctx->height = dec_ctx->height;
-            enc_ctx->width = dec_ctx->width;
+            enc_ctx->height = scale_height;
+            enc_ctx->width = scale_width;
             enc_ctx->sample_aspect_ratio = dec_ctx->sample_aspect_ratio;
             /* take first format from list of supported formats */
             if (encoder->pix_fmts)
@@ -184,7 +191,7 @@ static int open_output_file(const char *filename)
         enc_ctx->qcompress = 1.0;
 
         //scene detect parameter
-        enc_ctx->gop_size = 2000;
+        enc_ctx->gop_size = 3000;
         enc_ctx->profile = FF_PROFILE_H264_BASELINE;
         enc_ctx->scenechange_threshold = sc_threshold;
         av_opt_set(enc_ctx->priv_data, "tune","zerolatency",0);
@@ -273,9 +280,12 @@ encode:
             avio_closep(&ofmt_ctx->pb);
         avformat_free_context(ofmt_ctx);
 
+        char tmp_name[128];
+        sprintf(tmp_name, "%d_%s", scene_count, output_file_name);
+        std::string video_name(tmp_name);
+        file_queue.push(video_name);
         scene_count++;
 
-        char tmp_name[128];
         sprintf(tmp_name, "%d_%s", scene_count, output_file_name);
         open_output_file(tmp_name);
         av_packet_unref(&enc_pkt);
@@ -337,12 +347,14 @@ int main(int argc, char **argv)
 
     int (*dec_func)(AVCodecContext *, AVFrame *, int *, const AVPacket *);
 
-    if (argc != 3 && argc != 4) {
-        av_log(NULL, AV_LOG_ERROR, "Usage: %s <input file> <output file> [sc_threshold]\n", argv[0]);
+    if (argc != 6) {
+        av_log(NULL, AV_LOG_ERROR, "Usage: %s <input file> <output file> <sc_threshold> <width> <height>\n", argv[0]);
         return 1;
     }
-    if (argc == 4)
-        sc_threshold = atoi(argv[3]);
+
+    sc_threshold = atoi(argv[3]);
+    scale_width = atoi(argv[4]);
+    scale_height = atoi(argv[5]);
 
     av_register_all();
     avfilter_register_all();
@@ -358,6 +370,14 @@ int main(int argc, char **argv)
         goto end;
 
     video_dec_ctx = ifmt_ctx->streams[video_stream_idx]->codec;
+
+    pScaleFrame = av_frame_alloc();
+    pScaleFrame->width = scale_width;
+    pScaleFrame->height = scale_height;
+    pScaleFrame->format = AV_PIX_FMT_YUV420P;
+    uint8_t *out_buffer;
+    out_buffer=new uint8_t[avpicture_get_size(AV_PIX_FMT_YUV420P, pScaleFrame->width, pScaleFrame->height)];
+    avpicture_fill((AVPicture *)pScaleFrame, out_buffer, AV_PIX_FMT_YUV420P, pScaleFrame->width, pScaleFrame->height);
 
     /* read all packets */
     while (1) {
@@ -400,7 +420,14 @@ int main(int argc, char **argv)
                 frame->key_frame = 0;
                 frame->pict_type = AV_PICTURE_TYPE_NONE;
 
-                ret = encode_write_frame(frame, stream_index, NULL);
+                img_convert_ctx = sws_getContext(video_dec_ctx->width, video_dec_ctx->height, video_dec_ctx->pix_fmt,
+                                                 pScaleFrame->width, pScaleFrame->height, AV_PIX_FMT_YUV420P,
+                                                 SWS_BICUBIC, NULL, NULL, NULL);
+                sws_scale(img_convert_ctx, (const uint8_t* const*)frame->data, frame->linesize, 0,
+                          video_dec_ctx->height, pScaleFrame->data, pScaleFrame->linesize);
+
+                //ret = encode_write_frame(frame, stream_index, NULL);
+                ret = encode_write_frame(pScaleFrame, stream_index, NULL);
                 av_frame_free(&frame);
                 if (ret < 0)
                     goto end;

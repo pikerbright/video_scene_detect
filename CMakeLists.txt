@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.8)
 
 project(scene_detect)
 
+set(CMAKE_CXX_STANDARD 14)
+
 # Dependencies
 ##############
 find_package(PkgConfig REQUIRED)
