@@ -37,6 +37,7 @@ static int scene_count = 0;
 static int scene_frame_count = 0;
 char output_file_name[128];
 int sc_threshold = 100;
+bool cut_video = true;
 
 static int open_input_file(const char *filename)
 {
@@ -260,7 +261,7 @@ encode:
 
     auto type = (int)enc_pkt.data[5];
     //new sequence or I frame
-    if (scene_frame_count > 10 && ( type == 0x42 || type == 0x88)) {
+    if (cut_video && scene_frame_count > 10 && ( type == 0x42 || type == 0x88)) {
         av_write_trailer(ofmt_ctx);
 
         for (int i = 0; i < ofmt_ctx->nb_streams; i++) {
