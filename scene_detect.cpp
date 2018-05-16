@@ -44,8 +44,12 @@ static int open_input_file(const char *filename)
     unsigned int i;
     AVDictionary *opts = NULL;
 
+    av_dict_set(&opts, "rtsp_transport", "tcp", 0);
+    av_dict_set(&opts, "max_delay", "500000", 0);
+    //av_dict_set(&opts, "stimeout", "200000", 0);
+
     ifmt_ctx = NULL;
-    if ((ret = avformat_open_input(&ifmt_ctx, filename, NULL, NULL)) < 0) {
+    if ((ret = avformat_open_input(&ifmt_ctx, filename, NULL, &opts)) < 0) {
         av_log(NULL, AV_LOG_ERROR, "Cannot open input file\n");
         return ret;
     }
@@ -85,7 +89,6 @@ static int open_input_file(const char *filename)
             if (codec_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
                 codec_ctx->framerate = av_guess_frame_rate(ifmt_ctx, stream, NULL);
             /* Open decoder */
-			av_dict_set(&opts, "flags2", "+export_mvs", 0);
             ret = avcodec_open2(codec_ctx, dec, &opts);
             if (ret < 0) {
                 av_log(NULL, AV_LOG_ERROR, "Failed to open decoder for stream #%u\n", i);
@@ -285,10 +288,10 @@ encode:
     scene_frame_count++;
     enc_pkt.duration = 1;
     enc_pkt.pts = enc_pkt.dts;
-    enc_pkt.stream_index = stream_index;
+    enc_pkt.stream_index = 0;
     av_packet_rescale_ts(&enc_pkt,
                          stream_ctx[stream_index].enc_ctx->time_base,
-                         ofmt_ctx->streams[stream_index]->time_base);
+                         ofmt_ctx->streams[0]->time_base);
 
     av_log(NULL, AV_LOG_DEBUG, "Muxing frame\n");
     /* mux encoded frame */
@@ -342,6 +345,7 @@ int main(int argc, char **argv)
 
     av_register_all();
     avfilter_register_all();
+    avformat_network_init();
 
     strcpy(output_file_name, argv[2]);
     char tmp_name[128];
